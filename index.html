@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Job Scraper</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1a1d21;--muted:#667085;--line:#e4e7ec;--accent:#2563eb}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#181b21;--text:#e8eaed;--muted:#98a2b3;--line:#2a2f38;--accent:#6b9bff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif}
+header,main{max-width:960px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 12px}
+.bar{display:flex;gap:8px;flex-wrap:wrap}
+input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text)}
+input[type=search]{flex:1;min-width:180px}
+button{cursor:pointer}button.pri{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tabs button.on{border-color:var(--accent);color:var(--accent)}
+.job{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0}
+.job h3{margin:0;font-size:16px}.meta{color:var(--muted);font-size:13px;margin:2px 0 8px}
+.badge{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);margin-right:6px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.empty{color:var(--muted);text-align:center;padding:40px 0}
+a.btn{text-decoration:none;padding:8px 10px;border-radius:8px;background:var(--accent);color:#fff}
+</style>
+</head>
+<body>
+<header>
+  <h1>Job Scraper</h1>
+  <div class="bar">
+    <input id="q" type="search" placeholder="Search title, company, location">
+    <select id="src"><option value="">All sources</option></select>
+    <select id="sort"><option value="new">Newest</option><option value="co">Company A–Z</option></select>
+  </div>
+  <div class="bar tabs" style="margin-top:8px">
+    <button id="t-all" class="on">All jobs</button><button id="t-saved">Saved &amp; tracker</button>
+    <span id="count" style="margin-left:auto;color:var(--muted);align-self:center"></span>
+  </div>
+</header>
+<main id="list"></main>
+<script>
+const STATUSES=["saved","applied","screening","interview","offer","rejected"];
+let jobs=[],tab="all";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const load=()=>{try{return JSON.parse(localStorage.getItem("tracker")||"{}")}catch{return{}}};
+const store=t=>{try{localStorage.setItem("tracker",JSON.stringify(t))}catch{}};
+const key=j=>j.source+"|"+j.company+"|"+j.job_id;
+
+async function init(){
+  try{const r=await fetch("jobs.json",{cache:"no-store"});jobs=await r.json()}catch{jobs=[]}
+  const srcs=[...new Set(jobs.map(j=>j.source_label))].sort();
+  $("src").innerHTML='<option value="">All sources</option>'+srcs.map(s=>`<option>${esc(s)}</option>`).join("");
+  render();
+}
+function render(){
+  const t=load(),q=$("q").value.toLowerCase(),s=$("src").value;
+  let r=jobs.filter(j=>(!s||j.source_label===s)&&(!q||[j.title,j.company,j.location].join(" ").toLowerCase().includes(q)));
+  if(tab==="saved")r=r.filter(j=>t[key(j)]);
+  r.sort($("sort").value==="co"?(a,b)=>a.company.localeCompare(b.company):(a,b)=>(b.posted||"").localeCompare(a.posted||""));
+  $("count").textContent=r.length+" jobs";
+  $("list").innerHTML=r.length?r.slice(0,300).map(j=>{const k=key(j),st=t[k];return `<div class="job">
+    <h3>${esc(j.title)}</h3>
+    <div class="meta"><span class="badge">Posted on: ${esc(j.source_label)}</span>${esc(j.company)} · ${esc(j.location||"Location not listed")}${j.posted?" · "+esc(j.posted.slice(0,10)):""}</div>
+    <div class="row">
+      <a class="btn" href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">Apply on original site</a>
+      ${st?`<select data-k="${esc(k)}">${STATUSES.map(x=>`<option${x===st?" selected":""}>${x}</option>`).join("")}</select><button data-rm="${esc(k)}">Remove</button>`
+         :`<button data-save="${esc(k)}">Save</button>`}
+    </div></div>`}).join(""):
+    `<div class="empty">${jobs.length?"No matching jobs.":"No jobs yet. Run <code>python3 fetch_jobs.py companies.json</code> to create jobs.json, or load one below."}<br><br><input type="file" id="file" accept=".json"></div>`;
+}
+$("list").addEventListener("click",e=>{const t=load(),d=e.target.dataset;
+  if(d.save){t[d.save]="saved"}else if(d.rm){delete t[d.rm]}else return;store(t);render()});
+$("list").addEventListener("change",e=>{
+  if(e.target.id==="file"){const f=e.target.files[0];if(f)f.text().then(x=>{try{jobs=JSON.parse(x);render()}catch{alert("Invalid JSON")}});return}
+  const k=e.target.dataset.k;if(k){const t=load();t[k]=e.target.value;store(t)}});
+["q","src","sort"].forEach(id=>$(id).addEventListener("input",render));
+$("t-all").onclick=()=>{tab="all";$("t-all").className="on";$("t-saved").className="";render()};
+$("t-saved").onclick=()=>{tab="saved";$("t-saved").className="on";$("t-all").className="";render()};
+init();
+</script>
+</body>
+</html>

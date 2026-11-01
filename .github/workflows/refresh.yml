@@ -1,0 +1,17 @@
+name: Refresh jobs
+on:
+  schedule: [{cron: "17 */6 * * *"}]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 fetch_jobs.py companies.json -o jobs.json
+      - run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add jobs.json
+          git diff --cached --quiet || (git commit -m "Refresh jobs" && git push)
